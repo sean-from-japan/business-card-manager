@@ -96,9 +96,23 @@ def detect_provider(key: str) -> str:
     return ""
 
 
-def _api_failed(provider: str, detail: str):
+STATUS_MESSAGES = {
+    401: "APIキーが受け付けられませんでした（HTTP 401）。キーが正しいか、有効になっているかを管理者に確認してください。",
+    403: "このAPIキーでは、このモデルを使う権限がありません（HTTP 403）。LLM_MODEL の指定を確認してください。",
+    404: "指定したモデルが見つかりませんでした（HTTP 404）。LLM_MODEL の指定を確認してください。",
+    429: "AIの利用上限に達したか、混み合っています（HTTP 429）。少し待ってからもう一度試してください。",
+}
+
+
+def _api_failed(provider: str, detail: str, status: int = 0) -> "ExtractionError":
     print(f"extract.py: {provider} API error: {detail}", file=sys.stderr)
-    return ExtractionError("AIの読み取りに失敗しました（API呼び出しのエラー）。もう一度試すか、手で入力してください。")
+    if status in STATUS_MESSAGES:
+        msg = STATUS_MESSAGES[status]
+    elif status >= 500:
+        msg = f"AIのサービス側でエラーが起きました（HTTP {status}）。少し待ってからもう一度試してください。"
+    else:
+        msg = "AIの読み取りに失敗しました（API呼び出しのエラー）。もう一度試してください。"
+    return ExtractionError(msg + "読み取らずに、手で入力して登録することもできます。")
 
 
 def _parse_json_text(text: str) -> dict:
@@ -127,7 +141,7 @@ def _call_anthropic(key: str, model: str, image_b64: str) -> Tuple[dict, int, in
             ]}],
         )
     except anthropic.APIError as e:
-        raise _api_failed("anthropic", type(e).__name__)
+        raise _api_failed("anthropic", type(e).__name__, getattr(e, "status_code", 0) or 0)
     for block in msg.content:
         if block.type == "tool_use" and block.name == "record_card":
             return block.input, msg.usage.input_tokens, msg.usage.output_tokens
@@ -157,7 +171,7 @@ def _call_openai(key: str, model: str, image_b64: str) -> Tuple[dict, int, int]:
     except httpx.HTTPError as e:
         raise _api_failed("openai", type(e).__name__)
     if r.status_code != 200:
-        raise _api_failed("openai", f"HTTP {r.status_code} {r.text[:300]}")
+        raise _api_failed("openai", f"HTTP {r.status_code} {r.text[:300]}", r.status_code)
     data = r.json()
     calls = data["choices"][0]["message"].get("tool_calls") or []
     if not calls:
@@ -184,7 +198,7 @@ def _call_gemini(key: str, model: str, image_b64: str) -> Tuple[dict, int, int]:
     except httpx.HTTPError as e:
         raise _api_failed("gemini", type(e).__name__)
     if r.status_code != 200:
-        raise _api_failed("gemini", f"HTTP {r.status_code} {r.text[:300]}")
+        raise _api_failed("gemini", f"HTTP {r.status_code} {r.text[:300]}", r.status_code)
     data = r.json()
     try:
         text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])

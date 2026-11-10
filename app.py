@@ -120,6 +120,12 @@ def _register_routes(app: Flask) -> None:
             abort(404)
         return row
 
+    def llm_status():
+        """Provider name only; the key itself never reaches the browser."""
+        key = extract.api_key()
+        names = {"anthropic": "Claude", "openai": "GPT", "gemini": "Gemini"}
+        return names.get(extract.detect_provider(key), "") if key else None
+
     def run_extraction(token, image_name):
         path = os.path.join(app.config["DATA_DIR"], "pending", image_name)
         try:
@@ -192,15 +198,15 @@ def _register_routes(app: Flask) -> None:
     @login_required
     def card_new():
         if request.method == "GET":
-            return render_template("upload.html")
+            return render_template("upload.html", llm=llm_status())
         f = request.files.get("image")
         if not f or not f.filename:
             flash("画像ファイルを選んでください。", "error")
-            return render_template("upload.html"), 400
+            return render_template("upload.html", llm=llm_status()), 400
         data = f.read()
         if len(data) > MAX_UPLOAD_BYTES:
             flash("画像が5MBを超えています。", "error")
-            return render_template("upload.html"), 400
+            return render_template("upload.html", llm=llm_status()), 400
         try:
             with Image.open(io.BytesIO(data)) as img:
                 fmt = img.format
@@ -209,7 +215,7 @@ def _register_routes(app: Flask) -> None:
             fmt = None
         if fmt not in ALLOWED_FORMATS:
             flash("対応していない形式です。JPEG・PNG・WebPの画像を選んでください。", "error")
-            return render_template("upload.html"), 400
+            return render_template("upload.html", llm=llm_status()), 400
         token = secrets.token_urlsafe(16)
         image_name = token + ALLOWED_FORMATS[fmt]
         with open(os.path.join(app.config["DATA_DIR"], "pending", image_name), "wb") as out:
@@ -416,7 +422,7 @@ def _register_routes(app: Flask) -> None:
     @app.errorhandler(413)
     def too_large(_e):
         flash("画像が5MBを超えています。", "error")
-        return render_template("upload.html"), 413
+        return render_template("upload.html", llm=llm_status()), 413
 
 
 if __name__ == "__main__":
