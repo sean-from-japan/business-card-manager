@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>ログイン</h1>
+<form method="post" class="box" style="max-width:420px">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="field"><label for="email">メールアドレス</label><input id="email" type="email" name="email" required autofocus></div>
+  <div class="field"><label for="password">パスワード</label><input id="password" type="password" name="password" required></div>
+  <button>ログイン</button>
+  <p class="muted">アカウントは管理者が追加します。</p>
+</form>
+{% endblock %}

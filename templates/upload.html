@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>名刺を取り込む</h1>
+<form method="post" enctype="multipart/form-data" class="box" style="max-width:560px">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="field"><label for="image">名刺の画像（1枚）</label>
+    <input id="image" type="file" name="image" accept="image/jpeg,image/png,image/webp" required></div>
+  <p class="muted">対応形式：JPEG・PNG・WebP、1枚5MBまで。iPhoneのHEICは、JPEGで書き出してから選んでください。</p>
+  <button>取り込んでAIで読み取る</button>
+  <p class="muted">読み取りには10秒ほどかかります。読み取った内容は、確認画面で「登録」を押すまで保存されません。</p>
+</form>
+{% endblock %}

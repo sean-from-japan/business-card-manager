@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>利用者と閲覧許可</h1>
+<div class="box" style="max-width:560px">
+  <h2 style="font-size:1.1rem; margin-top:0">一般利用者を追加</h2>
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <div class="field"><label for="email">メールアドレス</label><input id="email" type="email" name="email" required></div>
+    <div class="field"><label for="password">初期パスワード（8文字以上）</label><input id="password" type="text" name="password" minlength="8" required autocomplete="off"></div>
+    <button>追加</button>
+    <p class="muted">初期パスワードは本人に直接伝えてください。この画面からメールは送りません。</p>
+  </form>
+</div>
+<table>
+  <tr><th>メールアドレス</th><th>role</th><th>閲覧許可</th><th></th></tr>
+  {% for u in users %}
+  <tr>
+    <td>{{ u.email }}</td><td>{{ u.role }}</td>
+    <td>{% if u.role == 'admin' %}<span class="muted">すべての名刺を閲覧できます</span>{% else %}{{ u.grant_count }}件{% endif %}</td>
+    <td>{% if u.role == 'user' %}<a href="{{ url_for('admin_grants', user_id=u.id) }}">確認・変更</a>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

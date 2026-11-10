@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>読み取り結果の確認</h1>
+{% if error %}
+  <div class="flash error">{{ error }}</div>
+{% endif %}
+<div class="two">
+  <div>
+    <img class="card-img" src="{{ url_for('pending_image', token=token) }}" alt="取り込んだ名刺の画像">
+    <form method="post" action="{{ url_for('pending_retry', token=token) }}" class="row" style="margin-top:8px">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="secondary">AIでもう一度読み取る</button>
+    </form>
+    {% if result %}<p class="muted">この読み取り：入力 {{ result.usage.input_tokens }} トークン、出力 {{ result.usage.output_tokens }} トークン（{{ result.usage.model }}）</p>{% endif %}
+  </div>
+  <div>
+    {% if result %}
+      <p>画像と見比べて、違う所を直してから登録してください。名刺に無い項目は空欄のままにします。</p>
+      {% for w in result.warnings %}<p class="warn">{{ w }}</p>{% endfor %}
+      {% if result.unclear %}<p class="warn">AIが読み取りに自信の無い項目に色を付けています。</p>{% endif %}
+    {% elif not error %}
+      <p>まだ読み取っていません。</p>
+    {% else %}
+      <p>手で入力して登録することもできます。</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('pending_register', token=token) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      {% for key, label in FIELDS %}
+      <div class="field {% if result and key in result.unclear %}unclear{% endif %}">
+        <label for="f-{{ key }}">{{ label }}{% if key == 'name' %}（必須）{% endif %}</label>
+        <input id="f-{{ key }}" type="text" name="{{ key }}" value="{{ values[key] }}" {% if key == 'name' %}required{% endif %}>
+      </div>
+      {% endfor %}
+      <button>登録</button>
+    </form>
+    <form method="post" action="{{ url_for('pending_discard', token=token) }}" style="margin-top:12px">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="danger">登録せずに破棄</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

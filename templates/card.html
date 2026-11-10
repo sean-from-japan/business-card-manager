@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="{{ url_for('cards') }}">名刺一覧へ戻る</a></p>
+<h1>{{ card.name }}</h1>
+<div class="two">
+  <div><img class="card-img" src="{{ url_for('card_image', card_id=card.id) }}" alt="{{ card.name }}さんの名刺の画像"></div>
+  <div>
+    <table>
+      {% for key, label in FIELDS %}
+      <tr><th style="width:9em">{{ label }}</th><td>
+        {% if key == 'email' and card.email %}<a href="mailto:{{ card.email }}">{{ card.email }}</a>
+        {% elif key == 'phone' and card.phone %}{{ card.phone }}
+        {% elif key == 'website' and card.website %}<a href="{{ card.website if card.website.startswith('http') else 'https://' ~ card.website }}" rel="noopener noreferrer" target="_blank">{{ card.website }}</a>
+        {% else %}{{ card[key] }}{% endif %}
+      </td></tr>
+      {% endfor %}
+      <tr><th>登録者</th><td class="muted">{{ card.registered_by_email }}（{{ card.created_at }} UTC）</td></tr>
+    </table>
+  </div>
+</div>
+{% endblock %}

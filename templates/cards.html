@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>名刺一覧</h1>
+<form method="get" class="row" style="max-width:560px; margin-bottom:16px">
+  <input type="search" name="q" value="{{ q }}" placeholder="氏名・会社名で検索" aria-label="氏名・会社名で検索">
+  <button>検索</button>
+  {% if q %}<a class="btn secondary" href="{{ url_for('cards') }}">解除</a>{% endif %}
+</form>
+<p class="muted">{{ cards|length }}件{% if q %}（「{{ q }}」で検索）{% endif %}。{% if user.role != 'admin' %}自分が登録した名刺と、管理者が許可した名刺を表示しています。{% endif %}</p>
+{% if cards %}
+<table>
+  <tr><th>氏名</th><th>会社名</th><th>部署</th><th>役職</th><th>メールアドレス</th><th>電話番号</th><th>登録者</th></tr>
+  {% for c in cards %}
+  <tr>
+    <td><a href="{{ url_for('card_detail', card_id=c.id) }}">{{ c.name }}</a></td>
+    <td>{{ c.company }}</td><td>{{ c.department }}</td><td>{{ c.title }}</td>
+    <td>{{ c.email }}</td><td>{{ c.phone }}</td><td class="muted">{{ c.registered_by_email }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>表示できる名刺はありません。<a href="{{ url_for('card_new') }}">名刺を取り込む</a></p>
+{% endif %}
+{% endblock %}

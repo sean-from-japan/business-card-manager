@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="{{ url_for('admin_users') }}">利用者一覧へ戻る</a></p>
+<h1>{{ target.email }} の閲覧許可</h1>
+<p class="muted">自分が登録した名刺は、許可が無くても閲覧できます。企業・部署は登録済みの名刺から選びます。</p>
+
+<div class="box">
+  <h2 style="font-size:1.1rem; margin-top:0">現在の許可</h2>
+  {% if grants %}
+  <table>
+    <tr><th>単位</th><th>対象</th><th></th></tr>
+    {% for gr in grants %}
+    <tr>
+      <td>{{ {'company':'企業','department':'部署','person':'人物'}[gr.kind] }}</td>
+      <td>
+        {% if gr.kind == 'company' %}{{ gr.company_label or gr.company_key }}
+        {% elif gr.kind == 'department' %}{{ gr.company_label or gr.company_key }} ／ {{ gr.department_label or gr.department_key }}
+        {% else %}{{ gr.card_name }}（{{ gr.card_company or '会社名なし' }}、名刺ID {{ gr.card_id }}）{% endif %}
+      </td>
+      <td><form method="post" action="{{ url_for('admin_grant_delete', grant_id=gr.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="danger">解除</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p>許可はありません。この利用者は自分が登録した名刺だけを閲覧できます。</p>{% endif %}
+</div>
+
+<div class="box">
+  <h2 style="font-size:1.1rem; margin-top:0">許可を付与</h2>
+  <form method="post" action="{{ url_for('admin_grant_add', user_id=target.id) }}" class="row" style="margin-bottom:8px">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}"><input type="hidden" name="kind" value="company">
+    <span style="width:4em">企業</span>
+    <select name="company_key" required><option value="">選んでください</option>
+      {% for c in companies %}<option value="{{ c.company_key }}">{{ c.label }}（{{ c.n }}枚）</option>{% endfor %}</select>
+    <button>付与</button>
+  </form>
+  <form method="post" action="{{ url_for('admin_grant_add', user_id=target.id) }}" class="row" style="margin-bottom:8px">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}"><input type="hidden" name="kind" value="department">
+    <span style="width:4em">部署</span>
+    <select name="department" required><option value="">選んでください</option>
+      {% for d in departments %}<option value="{{ d.company_key }}&#9;{{ d.department_key }}">{{ d.company }} ／ {{ d.label }}（{{ d.n }}枚）</option>{% endfor %}</select>
+    <button>付与</button>
+  </form>
+  <form method="post" action="{{ url_for('admin_grant_add', user_id=target.id) }}" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}"><input type="hidden" name="kind" value="person">
+    <span style="width:4em">人物</span>
+    <select name="card_id" required><option value="">選んでください</option>
+      {% for p in people %}<option value="{{ p.id }}">{{ p.name }}（{{ p.company or '会社名なし' }}{% if p.department %}、{{ p.department }}{% endif %}、名刺ID {{ p.id }}）</option>{% endfor %}</select>
+    <button>付与</button>
+  </form>
+</div>
+
+<div class="box">
+  <h2 style="font-size:1.1rem; margin-top:0">この利用者が今閲覧できる名刺（{{ visible|length }}件）</h2>
+  {% if visible %}<ul>{% for c in visible %}<li>{{ c.name }}（{{ c.company }}{% if c.department %}、{{ c.department }}{% endif %}）</li>{% endfor %}</ul>
+  {% else %}<p>ありません。</p>{% endif %}
+</div>
+{% endblock %}
