@@ -67,7 +67,7 @@ def prepare_image(path: str) -> str:
 
 
 KEY_ENV_NAMES = ("LLM_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY")
-DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "openai": "gpt-5", "gemini": "gemini-2.5-flash"}
+DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "openai": "gpt-5.4-mini", "gemini": "gemini-2.5-flash"}
 JSON_INSTRUCTION = (
     "\nReturn only a JSON object with these string keys: " + ", ".join(KEYS)
     + ", and unclear_fields (array of those key names)."

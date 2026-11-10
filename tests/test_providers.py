@@ -70,7 +70,7 @@ def test_full_extract_through_openai_path(monkeypatch, tmp_path):
     monkeypatch.delenv("LLM_MODEL", raising=False)
     monkeypatch.setattr(httpx, "post", fake_post(200, body, seen))
     result = extract.extract(str(img))
-    assert result["fields"]["name"] == "Test Taro" and result["usage"]["model"] == "openai/gpt-5"
+    assert result["fields"]["name"] == "Test Taro" and result["usage"]["model"] == "openai/gpt-5.4-mini"
     import base64, io
     sent = Image.open(io.BytesIO(base64.b64decode(seen["body"]["messages"][1]["content"][0]["image_url"]["url"].split(",", 1)[1])))
     assert max(sent.size) == extract.LLM_IMAGE_MAX_SIDE  # large photos are shrunk before sending

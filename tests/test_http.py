@@ -188,3 +188,14 @@ def test_admin_reissue_forces_change_again(app, conn):
     u = app.test_client()
     login(u, "a@example.test", shown)
     assert u.get("/cards").status_code == 302
+
+
+@pytest.mark.parametrize("fmt", ["GIF", "BMP", "TIFF"])
+def test_other_formats_are_converted_to_png(app, conn, fmt):
+    add_user(conn, "a@example.test")
+    c = app.test_client()
+    login(c, "a@example.test")
+    r = post(c, "/cards/new", {"image": (io.BytesIO(png_bytes(fmt)), "card." + fmt.lower())}, content_type="multipart/form-data")
+    assert r.status_code == 302
+    img = c.get(r.headers["Location"] + "/image")
+    assert img.status_code == 200 and img.data[:8] == b"\x89PNG\r\n\x1a\n"

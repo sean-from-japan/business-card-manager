@@ -7,14 +7,24 @@ import sys
 from functools import wraps
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, send_file, session, url_for
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import access
 import db
 import extract
 
-ALLOWED_FORMATS = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
+ALLOWED_FORMATS = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}  # stored as uploaded
+# Accepted but stored as PNG, because browsers cannot show TIFF and GIF/BMP may be animated or huge.
+CONVERT_FORMATS = {"GIF", "BMP", "TIFF"}
+try:  # optional: iPhone photos (HEIC/HEIF) when pillow-heif is installed
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+    CONVERT_FORMATS.add("HEIF")
+except ImportError:
+    pass
+FORMAT_LABEL = "JPEG・PNG・WebP・GIF・BMP・TIFF" + ("・HEIC" if "HEIF" in CONVERT_FORMATS else "")
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MIN_PASSWORD_LEN = 8
 HASH_METHOD = "pbkdf2:sha256"  # scrypt is missing from some Python builds (macOS system Python)
@@ -225,26 +235,43 @@ def _register_routes(app: Flask) -> None:
     @login_required
     def card_new():
         if request.method == "GET":
-            return render_template("upload.html", llm=llm_status())
+            return render_template("upload.html", llm=llm_status(), formats=FORMAT_LABEL)
         f = request.files.get("image")
         if not f or not f.filename:
             flash("画像ファイルを選んでください。", "error")
-            return render_template("upload.html", llm=llm_status()), 400
+            return render_template("upload.html", llm=llm_status(), formats=FORMAT_LABEL), 400
         data = f.read()
         if len(data) > MAX_UPLOAD_BYTES:
             flash("画像が5MBを超えています。", "error")
-            return render_template("upload.html", llm=llm_status()), 400
+            return render_template("upload.html", llm=llm_status(), formats=FORMAT_LABEL), 400
         try:
             with Image.open(io.BytesIO(data)) as img:
                 fmt = img.format
                 img.verify()
         except (UnidentifiedImageError, OSError, SyntaxError):
             fmt = None
-        if fmt not in ALLOWED_FORMATS:
-            flash("対応していない形式です。JPEG・PNG・WebPの画像を選んでください。", "error")
-            return render_template("upload.html", llm=llm_status()), 400
+        if fmt not in ALLOWED_FORMATS and fmt not in CONVERT_FORMATS:
+            hint = "（HEICは、JPEGに書き出してから選んでください）" if data[4:12] in (b"ftypheic", b"ftypheix", b"ftypmif1") else ""
+            flash(f"対応していない形式です。{FORMAT_LABEL}の画像を選んでください。{hint}", "error")
+            return render_template("upload.html", llm=llm_status(), formats=FORMAT_LABEL), 400
         token = secrets.token_urlsafe(16)
-        image_name = token + ALLOWED_FORMATS[fmt]
+        if fmt in CONVERT_FORMATS:
+            try:
+                with Image.open(io.BytesIO(data)) as img:
+                    img.seek(0)  # first frame of an animated GIF or multi-page TIFF
+                    img = ImageOps.exif_transpose(img)
+                    if img.mode not in ("RGB", "RGBA", "L"):
+                        img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                data = buf.getvalue()
+            except Exception as e:
+                print(f"app.py: image conversion failed {type(e).__name__}: {e}", file=sys.stderr)
+                flash("画像を読み込めませんでした。別の画像か、JPEG・PNGで保存した画像を選んでください。", "error")
+                return render_template("upload.html", llm=llm_status(), formats=FORMAT_LABEL), 400
+            image_name = token + ".png"
+        else:
+            image_name = token + ALLOWED_FORMATS[fmt]
         with open(os.path.join(app.config["DATA_DIR"], "pending", image_name), "wb") as out:
             out.write(data)
         conn = get_db()
@@ -476,7 +503,7 @@ def _register_routes(app: Flask) -> None:
     @app.errorhandler(413)
     def too_large(_e):
         flash("画像が5MBを超えています。", "error")
-        return render_template("upload.html", llm=llm_status()), 413
+        return render_template("upload.html", llm=llm_status(), formats=FORMAT_LABEL), 413
 
 
 if __name__ == "__main__":
