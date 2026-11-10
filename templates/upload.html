@@ -9,7 +9,8 @@
 <form method="post" enctype="multipart/form-data" class="box" style="max-width:640px" id="upload-form">
   <input type="hidden" name="csrf" value="{{ csrf_token }}">
   <div class="field"><label for="image">名刺の画像（1枚）</label>
-    <input id="image" type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/tiff,image/heic,image/heif,.heic,.heif" required></div>
+    <input id="image" type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/tiff,image/heic,image/heif,.heic,.heif" required>
+    <p class="muted">スマートフォンでは、ここからカメラで撮影して取り込めます。</p></div>
   <img id="preview" alt="選んだ画像のプレビュー" style="display:none; max-width:100%; max-height:280px; border:1px solid var(--line); border-radius:6px; margin-bottom:10px">
   <p id="size-error" class="warn" style="display:none">画像が5MBを超えています。別の画像を選んでください。</p>
   <p class="muted">対応形式：{{ formats }}、1枚5MBまで。GIF・BMP・TIFF{% if "HEIC" in formats %}・HEIC{% endif %}はPNGに変換して保存します。{% if "HEIC" not in formats %}iPhoneのHEICは、JPEGで書き出してから選んでください。{% endif %}</p>

@@ -34,6 +34,13 @@
   .row { display:flex; gap:8px; align-items:center; }
   .box { border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
   @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+  /* Smartphone layout: wrap header, scroll wide tables, touch-sized controls */
+  @media (max-width: 639px) {
+    header { flex-wrap:wrap; gap:8px 12px; padding:8px 12px; }
+    main { padding:0 12px; margin:12px auto; }
+    table { display:block; overflow-x:auto; }
+    button, .btn, input[type=text], input[type=email], input[type=password], input[type=search], input[type=file], select { min-height:44px; }
+  }
 </style>
 </head>
 <body>
