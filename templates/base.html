@@ -43,7 +43,7 @@
     <a href="{{ url_for('cards') }}">名刺一覧</a>
     <a href="{{ url_for('card_new') }}">名刺を取り込む</a>
     {% if user.role == 'admin' %}<a href="{{ url_for('admin_users') }}">利用者と閲覧許可</a>{% endif %}
-    <span class="muted">{{ user.email }}（{{ user.role }}）</span>
+    <a href="{{ url_for('change_password') }}" class="muted">{{ user.email }}（{{ user.role }}）</a>
     <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="secondary">ログアウト</button></form>
   {% endif %}
 </header>

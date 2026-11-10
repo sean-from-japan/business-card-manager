@@ -88,6 +88,8 @@ def _register_routes(app: Flask) -> None:
             token = session.get("csrf")
             if not token or request.form.get("csrf") != token:
                 abort(400)
+        if g.user is not None and g.user["must_change_password"] and request.endpoint not in ("change_password", "logout", "static"):
+            return redirect(url_for("change_password"))
 
     @app.context_processor
     def inject():
@@ -162,6 +164,31 @@ def _register_routes(app: Flask) -> None:
     def logout():
         session.clear()
         return redirect(url_for("login"))
+
+    @app.route("/account/password", methods=["GET", "POST"])
+    @login_required
+    def change_password():
+        if request.method == "POST":
+            current = request.form.get("current", "")
+            new = request.form.get("new", "")
+            if not check_password_hash(g.user["password_hash"], current):
+                flash("今のパスワードが正しくありません。", "error")
+            elif len(new) < MIN_PASSWORD_LEN:
+                flash(f"新しいパスワードは{MIN_PASSWORD_LEN}文字以上にしてください。", "error")
+            elif new != request.form.get("confirm", ""):
+                flash("確認用のパスワードが一致しません。", "error")
+            elif new == current:
+                flash("今と違うパスワードにしてください。", "error")
+            else:
+                conn = get_db()
+                conn.execute(
+                    "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+                    (generate_password_hash(new, method=HASH_METHOD), g.user["id"]),
+                )
+                conn.commit()
+                flash("パスワードを変更しました。", "info")
+                return redirect(url_for("cards"))
+        return render_template("change_password.html")
 
     # --- cards ---
 
@@ -307,7 +334,10 @@ def _register_routes(app: Flask) -> None:
         conn = get_db()
         if request.method == "POST":
             email = db.normalize(request.form.get("email", ""))
-            password = request.form.get("password", "")
+            password = request.form.get("password", "").strip()
+            generated = not password
+            if generated:
+                password = secrets.token_urlsafe(9)  # 12 chars, shown once to the admin
             if "@" not in email:
                 flash("メールアドレスを入力してください。", "error")
             elif len(password) < MIN_PASSWORD_LEN:
@@ -316,17 +346,41 @@ def _register_routes(app: Flask) -> None:
                 flash("そのメールアドレスは登録済みです。", "error")
             else:
                 conn.execute(
-                    "INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'user')",
+                    "INSERT INTO users (email, password_hash, role, must_change_password) VALUES (?, ?, 'user', 1)",
                     (email, generate_password_hash(password, method=HASH_METHOD)),
                 )
                 conn.commit()
                 flash(f"{email} を一般利用者として追加しました。", "info")
+                if generated:
+                    # Shown only in this response; it is stored hashed and cannot be displayed again.
+                    users = conn.execute(
+                        """SELECT u.*, (SELECT COUNT(*) FROM grants WHERE user_id = u.id) AS grant_count
+                           FROM users u ORDER BY u.role, u.email"""
+                    ).fetchall()
+                    return render_template("admin_users.html", users=users, issued={"email": email, "password": password})
                 return redirect(url_for("admin_users"))
         users = conn.execute(
             """SELECT u.*, (SELECT COUNT(*) FROM grants WHERE user_id = u.id) AS grant_count
                FROM users u ORDER BY u.role, u.email"""
         ).fetchall()
         return render_template("admin_users.html", users=users)
+
+    @app.post("/admin/users/<int:user_id>/reset")
+    @admin_required
+    def admin_reset_password(user_id):
+        conn = get_db()
+        u = target_user(user_id)
+        password = secrets.token_urlsafe(9)
+        conn.execute(
+            "UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?",
+            (generate_password_hash(password, method=HASH_METHOD), user_id),
+        )
+        conn.commit()
+        users = conn.execute(
+            """SELECT u.*, (SELECT COUNT(*) FROM grants WHERE user_id = u.id) AS grant_count
+               FROM users u ORDER BY u.role, u.email"""
+        ).fetchall()
+        return render_template("admin_users.html", users=users, issued={"email": u["email"], "password": password})
 
     def target_user(user_id):
         u = get_db().execute("SELECT * FROM users WHERE id = ? AND role = 'user'", (user_id,)).fetchone()

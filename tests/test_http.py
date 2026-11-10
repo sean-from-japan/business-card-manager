@@ -68,6 +68,7 @@ def test_admin_adds_user_and_grants_company(app, conn):
     post(c, f"/admin/users/{new_id['id']}/grants", {"kind": "company", "company_key": "acme"})
     u = app.test_client()
     login(u, "new@example.test", "new-pass-123")
+    post(u, "/account/password", {"current": "new-pass-123", "new": "changed-pass-1", "confirm": "changed-pass-1"})
     assert u.get(f"/cards/{card}").status_code == 200
     gid = conn.execute("SELECT id FROM grants").fetchone()["id"]
     post(c, f"/admin/grants/{gid}/delete")
@@ -156,3 +157,34 @@ def test_validate_coerces_bad_model_output():
 def test_detect_provider_from_key_prefix(key, provider, monkeypatch):
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     assert extract.detect_provider(key) == provider
+
+
+def test_admin_can_issue_generated_password(app, conn):
+    c = app.test_client()
+    login(c, ADMIN_EMAIL, ADMIN_PASSWORD)
+    page = post(c, "/admin/users", {"email": "gen@example.test", "password": ""}).get_data(as_text=True)
+    import re
+    shown = re.search(r'monospace; font-size:1.2rem">([^<]+)<', page).group(1)
+    assert len(shown) == 12
+    assert "二度と表示できません" in page
+    u = app.test_client()
+    assert login(u, "gen@example.test", shown).status_code == 302
+    assert shown not in c.get("/admin/users").get_data(as_text=True)  # not shown again
+    # First login with an issued password: everything redirects to the change page until changed.
+    assert u.get("/cards").headers["Location"].endswith("/account/password")
+    assert post(u, "/account/password", {"current": shown, "new": "my-own-pass-1", "confirm": "my-own-pass-1"}).status_code == 302
+    assert u.get("/cards").status_code == 200
+    again = app.test_client()
+    assert login(again, "gen@example.test", "my-own-pass-1").status_code == 302
+
+
+def test_admin_reissue_forces_change_again(app, conn):
+    uid = add_user(conn, "a@example.test")
+    c = app.test_client()
+    login(c, ADMIN_EMAIL, ADMIN_PASSWORD)
+    page = post(c, f"/admin/users/{uid}/reset").get_data(as_text=True)
+    import re
+    shown = re.search(r'monospace; font-size:1.2rem">([^<]+)<', page).group(1)
+    u = app.test_client()
+    login(u, "a@example.test", shown)
+    assert u.get("/cards").status_code == 302
