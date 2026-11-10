@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="{{ url_for('card_detail', card_id=card.id) }}">詳細へ戻る</a></p>
+<h1>名刺の内容を直す</h1>
+<div class="two">
+  <div><img class="card-img" src="{{ url_for('card_image', card_id=card.id) }}" alt="{{ card.name }}さんの名刺の画像"></div>
+  <div>
+    <p>画像と見比べて、違う所を直してください。</p>
+    <form method="post">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      {% for key, label in FIELDS %}
+      <div class="field">
+        <label for="f-{{ key }}">{{ label }}{% if key == 'name' %}（必須）{% endif %}</label>
+        <input id="f-{{ key }}" type="text" name="{{ key }}" value="{{ values[key] }}" {% if key == 'name' %}required{% endif %}>
+      </div>
+      {% endfor %}
+      <button>保存</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>確認待ちの名刺</h1>
+<p class="muted">{{ items|length }}件。取り込んだだけで、まだ登録していない名刺です。</p>
+{% if items %}
+<table>
+  <tr><th>取り込んだ日時</th><th>AIの読み取り</th><th></th></tr>
+  {% for p in items %}
+  <tr>
+    <td>{{ p.created_at }}</td>
+    <td>{% if p.error %}失敗（{{ p.error }}）{% else %}氏名: {{ p.name or '空欄' }}{% endif %}</td>
+    <td><a href="{{ url_for('pending_view', token=p.token) }}">確認して登録</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+<p><a href="{{ url_for('card_bulk') }}">まとめて取り込む</a></p>
+{% endblock %}

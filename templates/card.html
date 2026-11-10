@@ -16,6 +16,27 @@
       {% endfor %}
       <tr><th>登録者</th><td class="muted">{{ card.registered_by_email }}（{{ card.created_at }} UTC）</td></tr>
     </table>
+    {% if can_edit %}<p><a class="btn" href="{{ url_for('card_edit', card_id=card.id) }}">内容を直す</a></p>{% endif %}
   </div>
 </div>
+{% if viewers is not none %}
+<div class="box" style="margin-top:16px">
+  <h2 style="font-size:1.1rem; margin-top:0">この名刺を閲覧できる一般利用者</h2>
+  <p class="muted">adminはすべての名刺を閲覧できます。企業・部署の許可は「利用者と閲覧許可」で利用者ごとに設定します。</p>
+  {% if viewers %}
+  <table>
+    <tr><th>利用者</th><th>閲覧</th><th>理由</th></tr>
+    {% for v in viewers %}
+    <tr><td>{{ v.user.email }}</td><td>{{ 'できる' if v.reasons else 'できない' }}</td><td>{{ v.reasons|join('、') }}</td></tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="{{ url_for('admin_card_grant', card_id=card.id) }}" class="row" style="margin-top:10px">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <select name="user_id" required><option value="">利用者を選ぶ</option>
+      {% for v in viewers %}<option value="{{ v.user.id }}">{{ v.user.email }}</option>{% endfor %}</select>
+    <button>この名刺の閲覧を許可</button>
+  </form>
+  {% else %}<p>一般利用者はまだいません。</p>{% endif %}
+</div>
+{% endif %}
 {% endblock %}

@@ -1,4 +1,5 @@
 """Business card manager: Flask routes. Run with `flask --app app run`."""
+import hashlib
 import io
 import json
 import os
@@ -13,6 +14,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import access
 import db
 import extract
+import mailer
 
 ALLOWED_FORMATS = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}  # stored as uploaded
 # Accepted but stored as PNG, because browsers cannot show TIFF and GIF/BMP may be animated or huge.
@@ -200,12 +202,72 @@ def _register_routes(app: Flask) -> None:
                 return redirect(url_for("cards"))
         return render_template("change_password.html")
 
+    @app.route("/password/forgot", methods=["GET", "POST"])
+    def password_forgot():
+        if request.method == "POST":
+            email = db.normalize(request.form.get("email", ""))
+            conn = get_db()
+            row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+            if row:
+                token = secrets.token_urlsafe(32)
+                # Only the hash is stored, so a leaked DB does not reveal usable links.
+                conn.execute(
+                    "INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+30 minutes'))",
+                    (hashlib.sha256(token.encode()).hexdigest(), row["id"]),
+                )
+                conn.commit()
+                link = url_for("password_reset", token=token, _external=True)
+                mailer.send(
+                    email,
+                    "名刺管理: パスワード再設定のご案内",
+                    f"パスワードを再設定するには、30分以内に次のリンクを開いてください。\n\n{link}\n\n"
+                    "心当たりが無い場合は、このメールを破棄してください。",
+                    app.config["DATA_DIR"],
+                )
+            # Same message either way, so the form cannot be used to probe which emails exist.
+            flash("登録されているメールアドレスであれば、再設定用のリンクを送りました。", "info")
+            return redirect(url_for("password_forgot"))
+        return render_template("password_forgot.html")
+
+    @app.route("/password/reset/<token>", methods=["GET", "POST"])
+    def password_reset(token):
+        conn = get_db()
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        row = conn.execute(
+            "SELECT * FROM password_resets WHERE token_hash = ? AND used = 0 AND expires_at > datetime('now')",
+            (token_hash,),
+        ).fetchone()
+        if row is None:
+            flash("リンクが無効か、期限が切れています。", "error")
+            return redirect(url_for("password_forgot"))
+        if request.method == "POST":
+            new = request.form.get("new", "")
+            if len(new) < MIN_PASSWORD_LEN:
+                flash(f"新しいパスワードは{MIN_PASSWORD_LEN}文字以上にしてください。", "error")
+            elif new != request.form.get("confirm", ""):
+                flash("確認用のパスワードが一致しません。", "error")
+            else:
+                conn.execute(
+                    "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+                    (generate_password_hash(new, method=HASH_METHOD), row["user_id"]),
+                )
+                conn.execute("UPDATE password_resets SET used = 1 WHERE token_hash = ?", (token_hash,))
+                conn.commit()
+                flash("パスワードを再設定しました。新しいパスワードでログインしてください。", "info")
+                return redirect(url_for("login"))
+        return render_template("password_reset.html")
+
     # --- cards ---
 
     @app.get("/")
     @login_required
     def index():
         return redirect(url_for("cards"))
+
+    @app.get("/help")
+    def help_page():
+        # Readable before login too, so a new user can learn how to sign in.
+        return render_template("help.html", formats=FORMAT_LABEL)
 
     @app.get("/cards")
     @login_required
@@ -219,7 +281,74 @@ def _register_routes(app: Flask) -> None:
         card = access.get_card(get_db(), g.user, card_id)
         if card is None:
             abort(404)  # same answer for "missing" and "not allowed"
-        return render_template("card.html", card=card)
+        viewers = None
+        if g.user["role"] == "admin":
+            # Per-card view of the same rules: which users can see this card, and why.
+            conn = get_db()
+            viewers = []
+            for u in conn.execute("SELECT * FROM users WHERE role = 'user' ORDER BY email").fetchall():
+                reasons = []
+                if card["registered_by"] == u["id"]:
+                    reasons.append("登録者")
+                for gr in conn.execute("SELECT * FROM grants WHERE user_id = ?", (u["id"],)).fetchall():
+                    if gr["kind"] == "company" and card["company_key"] and gr["company_key"] == card["company_key"]:
+                        reasons.append("企業の許可")
+                    elif (gr["kind"] == "department" and card["company_key"] and card["department_key"]
+                          and gr["company_key"] == card["company_key"] and gr["department_key"] == card["department_key"]):
+                        reasons.append("部署の許可")
+                    elif gr["kind"] == "person" and gr["card_id"] == card["id"]:
+                        reasons.append("人物の許可")
+                viewers.append({"user": u, "reasons": reasons})
+        return render_template("card.html", card=card, viewers=viewers, can_edit=can_edit(card))
+
+    def can_edit(card):
+        # The registrant and admins may correct a card; viewers through a grant may only read it.
+        return g.user["role"] == "admin" or card["registered_by"] == g.user["id"]
+
+    @app.route("/cards/<int:card_id>/edit", methods=["GET", "POST"])
+    @login_required
+    def card_edit(card_id):
+        card = access.get_card(get_db(), g.user, card_id)
+        if card is None:
+            abort(404)
+        if not can_edit(card):
+            abort(403)
+        if request.method == "GET":
+            return render_template("card_edit.html", card=card, values={k: card[k] for k in extract.KEYS})
+        values = {k: request.form.get(k, "").strip()[: extract.MAX_FIELD_LEN] for k in extract.KEYS}
+        if not values["name"]:
+            flash("氏名は必須です。", "error")
+            return render_template("card_edit.html", card=card, values=values), 400
+        conn = get_db()
+        conn.execute(
+            """UPDATE cards SET name = ?, company = ?, department = ?, title = ?, email = ?, phone = ?, address = ?,
+               website = ?, name_key = ?, company_key = ?, department_key = ? WHERE id = ?""",
+            [values[k] for k in extract.KEYS]
+            + [db.normalize(values["name"]), db.normalize(values["company"]), db.normalize(values["department"]), card_id],
+        )
+        conn.commit()
+        flash("名刺を更新しました。", "info")
+        return redirect(url_for("card_detail", card_id=card_id))
+
+    @app.post("/admin/cards/<int:card_id>/grant")
+    @admin_required
+    def admin_card_grant(card_id):
+        conn = get_db()
+        if conn.execute("SELECT 1 FROM cards WHERE id = ?", (card_id,)).fetchone() is None:
+            abort(404)
+        uid = request.form.get("user_id", type=int)
+        if uid is None or conn.execute("SELECT 1 FROM users WHERE id = ? AND role = 'user'", (uid,)).fetchone() is None:
+            flash("利用者を選んでください。", "error")
+        elif conn.execute("SELECT 1 FROM grants WHERE user_id = ? AND kind = 'person' AND card_id = ?", (uid, card_id)).fetchone():
+            flash("同じ許可がすでにあります。", "info")
+        else:
+            conn.execute(
+                "INSERT INTO grants (user_id, kind, card_id, created_by) VALUES (?, 'person', ?, ?)",
+                (uid, card_id, g.user["id"]),
+            )
+            conn.commit()
+            flash("この名刺の閲覧を許可しました（人物の許可）。", "info")
+        return redirect(url_for("card_detail", card_id=card_id))
 
     @app.get("/cards/<int:card_id>/image")
     @login_required
@@ -353,6 +482,92 @@ def _register_routes(app: Flask) -> None:
         flash("名刺を登録しました。", "info")
         return redirect(url_for("card_detail", card_id=cur.lastrowid))
 
+    # --- bulk upload ---
+
+    BULK_MAX_FILES = 20
+
+    def allow_bulk_body():
+        # The app-wide body limit fits one image; the bulk form may carry up to BULK_MAX_FILES.
+        # Registered first so it runs before the CSRF check parses the form.
+        if request.endpoint == "card_bulk":
+            request.max_content_length = BULK_MAX_FILES * MAX_UPLOAD_BYTES + 64 * 1024
+
+    app.before_request_funcs.setdefault(None, []).insert(0, allow_bulk_body)
+
+    @app.route("/cards/bulk", methods=["GET", "POST"])
+    @login_required
+    def card_bulk():
+        if request.method == "GET":
+            return render_template("bulk.html", llm=llm_status(), formats=FORMAT_LABEL, max_files=BULK_MAX_FILES, results=None)
+        files = [f for f in request.files.getlist("images") if f and f.filename]
+        if not files or len(files) > BULK_MAX_FILES:
+            flash(f"画像ファイルを1〜{BULK_MAX_FILES}枚選んでください。", "error")
+            return render_template("bulk.html", llm=llm_status(), formats=FORMAT_LABEL, max_files=BULK_MAX_FILES, results=None), 400
+        conn = get_db()
+        results = []
+        for f in files:
+            item = {"filename": f.filename, "status": "unsupported", "token": None, "name": "", "reason": ""}
+            results.append(item)
+            data = f.read()
+            if len(data) > MAX_UPLOAD_BYTES:
+                item["reason"] = "画像が5MBを超えています"
+                continue
+            try:
+                with Image.open(io.BytesIO(data)) as img:
+                    fmt = img.format
+                    img.verify()
+            except (UnidentifiedImageError, OSError, SyntaxError):
+                fmt = None
+            if fmt not in ALLOWED_FORMATS and fmt not in CONVERT_FORMATS:
+                item["reason"] = f"{FORMAT_LABEL}の画像ではありません"
+                continue
+            token = secrets.token_urlsafe(16)
+            if fmt in CONVERT_FORMATS:
+                try:
+                    with Image.open(io.BytesIO(data)) as img:
+                        img.seek(0)
+                        img = ImageOps.exif_transpose(img)
+                        if img.mode not in ("RGB", "RGBA", "L"):
+                            img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                    data = buf.getvalue()
+                except Exception as e:
+                    print(f"app.py: bulk conversion failed {type(e).__name__}: {e}", file=sys.stderr)
+                    item["reason"] = "画像を読み込めませんでした"
+                    continue
+                image_name = token + ".png"
+            else:
+                image_name = token + ALLOWED_FORMATS[fmt]
+            with open(os.path.join(app.config["DATA_DIR"], "pending", image_name), "wb") as out:
+                out.write(data)
+            conn.execute("INSERT INTO pending (token, user_id, image_name) VALUES (?, ?, ?)", (token, g.user["id"], image_name))
+            conn.commit()
+            run_extraction(token, image_name)
+            row = conn.execute("SELECT result_json, error FROM pending WHERE token = ?", (token,)).fetchone()
+            item["token"] = token
+            if row["result_json"]:
+                item["status"] = "ok"
+                item["name"] = json.loads(row["result_json"])["fields"].get("name", "")
+            else:
+                item["status"] = "failed"
+                item["reason"] = row["error"] or ""
+        return render_template("bulk.html", llm=llm_status(), formats=FORMAT_LABEL, max_files=BULK_MAX_FILES, results=results)
+
+    @app.get("/cards/pending")
+    @login_required
+    def pending_list():
+        rows = get_db().execute(
+            "SELECT token, result_json, error, created_at FROM pending WHERE user_id = ? ORDER BY created_at DESC, rowid DESC",
+            (g.user["id"],),
+        ).fetchall()
+        items = [
+            {"token": r["token"], "created_at": r["created_at"], "error": r["error"],
+             "name": json.loads(r["result_json"])["fields"].get("name", "") if r["result_json"] else ""}
+            for r in rows
+        ]
+        return render_template("pending_list.html", items=items)
+
     # --- admin ---
 
     @app.route("/admin/users", methods=["GET", "POST"])
@@ -378,6 +593,15 @@ def _register_routes(app: Flask) -> None:
                 )
                 conn.commit()
                 flash(f"{email} を一般利用者として追加しました。", "info")
+                mailer.send(
+                    email,
+                    "名刺管理: アカウントを作成しました",
+                    f"名刺管理のアカウントを作成しました。\n\nログイン画面: {url_for('login', _external=True)}\n"
+                    f"メールアドレス: {email}\n初期パスワード: {password}\n\n"
+                    "初回ログインのときに、自分だけが知るパスワードへの変更をお願いします。",
+                    app.config["DATA_DIR"],
+                )
+                flash("招待メールを送りました（SMTP未設定のときは data/outbox に保存）", "info")
                 if generated:
                     # Shown only in this response; it is stored hashed and cannot be displayed again.
                     users = conn.execute(

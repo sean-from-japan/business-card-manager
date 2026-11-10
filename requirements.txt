@@ -3,3 +3,4 @@ anthropic>=0.40
 pillow>=10
 pytest>=8
 httpx>=0.27
+pillow-heif>=0.18  # optional: HEIC/HEIF photos from iPhone

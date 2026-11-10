@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>名刺をまとめて取り込む</h1>
+<p class="muted">
+  {% if llm %}AIの読み取り：{{ llm }}（設定済み）
+  {% elif llm == '' %}AIの読み取り：キーの種類を判定できません。LLM_PROVIDER を設定してください。手入力での登録はできます。
+  {% else %}AIの読み取り：未設定です。取り込んだ後、1枚ずつ手で入力して登録できます。{% endif %}
+</p>
+{% if results %}
+<div class="box">
+  <p>{{ results|length }}枚を処理しました。まだ登録されていません。1枚ずつ内容を確かめて「登録」を押してください。</p>
+  <table>
+    <tr><th>ファイル名</th><th>結果</th><th></th></tr>
+    {% for r in results %}
+    <tr>
+      <td>{{ r.filename }}</td>
+      <td>
+        {% if r.status == 'ok' %}読み取り成功（氏名: {{ r.name or '空欄' }}）
+        {% elif r.status == 'failed' %}失敗（{{ r.reason }}）
+        {% else %}対応していない形式（{{ r.reason }}）{% endif %}
+      </td>
+      <td>{% if r.token %}<a href="{{ url_for('pending_view', token=r.token) }}">確認して登録</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p><a href="{{ url_for('pending_list') }}">確認待ちの一覧へ</a></p>
+</div>
+{% endif %}
+<form method="post" enctype="multipart/form-data" class="box" style="max-width:640px" id="bulk-form">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="field"><label for="images">名刺の画像（{{ max_files }}枚まで）</label>
+    <input id="images" type="file" name="images" multiple accept="image/*" required></div>
+  <p class="muted">対応形式：{{ formats }}、1枚5MBまで。</p>
+  <button id="submit">取り込んでAIで読み取る</button>
+  <span id="busy" class="muted" style="display:none">読み取り中です。1枚あたり10〜20秒ほどかかります。</span>
+  <p class="muted">自動では登録しません。読み取った内容は、確認画面で「登録」を押すまで保存されません。</p>
+</form>
+<script>
+  document.getElementById('bulk-form').addEventListener('submit', () => {
+    document.getElementById('submit').disabled = true;
+    document.getElementById('busy').style.display = 'inline';
+  });
+</script>
+{% endblock %}

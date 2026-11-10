@@ -6,6 +6,7 @@
   <div class="field"><label for="email">メールアドレス</label><input id="email" type="email" name="email" required autofocus></div>
   <div class="field"><label for="password">パスワード</label><input id="password" type="password" name="password" required></div>
   <button>ログイン</button>
+  <p class="muted"><a href="{{ url_for('password_forgot') }}">パスワードを忘れた場合</a></p>
   <p class="muted">アカウントは管理者が追加します。</p>
 </form>
 {% endblock %}
